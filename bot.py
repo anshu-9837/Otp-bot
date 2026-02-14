@@ -29,21 +29,21 @@ from pyrogram.errors import (
 # -----------------------
 # CONFIG
 # -----------------------
-BOT_TOKEN = os.getenv('BOT_TOKEN', '8286083164:AAH9KqncsViaYFCwaGTFLAIJUxnPxeF-2ak'
+BOT_TOKEN = os.getenv('BOT_TOKEN', '8160687531:AAEhJb9-G7VdBClGbxc_Zx2Ywegy7M1vUvc')
 ADMIN_ID = int(os.getenv('ADMIN_ID', '8043091004'))
 MONGO_URL = os.getenv('MONGO_URL', 'mongodb+srv://Rexootpbot:tuSJ61tCHDM1jZAP@otpbot.hwmknyh.mongodb.net/?appName=Otpbot')
-API_ID = int(os.getenv('API_ID', '32892297'))
-API_HASH = os.getenv('API_HASH', 'b86cdf9bf87c9e61448cfedbd70f4b59')
+API_ID = int(os.getenv('API_ID', '30038466'))
+API_HASH = os.getenv('API_HASH', '5a492a0dfb22b1a0b7caacbf90cbf96e')
 
 # MUST JOIN CHANNEL
-MUST_JOIN_CHANNEL = "@OGGY_OTP"
+MUST_JOIN_CHANNEL = "@bot_heart2"
 
 # Referral commission percentage
 REFERRAL_COMMISSION = 1.5  # 1.5% per recharge
 
 # Global API Credentials for Pyrogram Login
-GLOBAL_API_ID = 32892297
-GLOBAL_API_HASH = "b86cdf9bf87c9e61448cfedbd70f4b59"
+GLOBAL_API_ID = 6435225
+GLOBAL_API_HASH = "4e984ea35f854762dcde906dce426c2d"
 
 
 # -----------------------
@@ -68,7 +68,7 @@ try:
     countries_col = db['countries']
     banned_users_col = db['banned_users']
     transactions_col = db['transactions']
-    coupons_col = db['coupons']
+    coupons_col = db['coupons']  # ADDED: Coupon collection
     logger.info("✅ MongoDB connected successfully")
 except Exception as e:
     logger.error(f"❌ MongoDB connection failed: {e}")
@@ -88,14 +88,14 @@ whatsapp_number_timers = {}
 payment_orders = {}
 admin_deduct_state = {}
 referral_data = {}
-broadcast_data = {}
-edit_price_state = {}
-coupon_state = {}
-recharge_method_state = {}
-upi_payment_states = {}
+broadcast_data = {}  # For broadcast state
+edit_price_state = {}  # For edit price flow
+coupon_state = {}  # ADDED: For coupon state management
+recharge_method_state = {}  # For recharge method selection
+upi_payment_states = {}  # ADDED: For UPI payment flow
 
 # Pyrogram login states
-login_states = {}
+login_states = {}  # Format: {user_id: {"step": "phone", "client": client_obj, ...}}
 
 # Import account management
 try:
@@ -129,6 +129,7 @@ def ensure_user_exists(user_id, user_name=None, username=None, referred_by=None)
         }
         users_col.insert_one(user_data)
         
+        # If referred by someone, record the referral
         if referred_by:
             referral_record = {
                 "referrer_id": referred_by,
@@ -138,6 +139,7 @@ def ensure_user_exists(user_id, user_name=None, username=None, referred_by=None)
                 "created_at": datetime.utcnow()
             }
             referrals_col.insert_one(referral_record)
+            # Update referrer's total referrals count
             users_col.update_one(
                 {"user_id": referred_by},
                 {"$inc": {"total_referrals": 1}}
@@ -181,16 +183,19 @@ def get_available_accounts_count(country):
     return accounts_col.count_documents({"country": country, "status": "active", "used": False})
 
 def is_admin(user_id):
+    """Check if user is admin"""
     try:
         return str(user_id) == str(ADMIN_ID)
     except:
         return False
 
 def is_user_banned(user_id):
+    """Check if user is banned"""
     banned = banned_users_col.find_one({"user_id": user_id, "status": "active"})
     return banned is not None
 
 def get_all_countries():
+    """Get all active countries"""
     return list(countries_col.find({"status": "active"}))
 
 def get_country_by_name(country_name):
@@ -200,11 +205,14 @@ def get_country_by_name(country_name):
     })
 
 def add_referral_commission(referrer_id, recharge_amount, recharge_id):
+    """Add commission to referrer when referred user recharges"""
     try:
         commission = (recharge_amount * REFERRAL_COMMISSION) / 100
         
+        # Add commission to referrer's balance
         add_balance(referrer_id, commission)
         
+        # Record transaction
         transaction_id = f"COM{referrer_id}{int(time.time())}"
         transaction_record = {
             "transaction_id": transaction_id,
@@ -217,16 +225,19 @@ def add_referral_commission(referrer_id, recharge_amount, recharge_id):
         }
         transactions_col.insert_one(transaction_record)
         
+        # Update user's total commission
         users_col.update_one(
             {"user_id": referrer_id},
             {"$inc": {"total_commission_earned": commission}}
         )
         
+        # Update referral status
         referrals_col.update_one(
             {"referred_id": recharge_id.get("user_id"), "referrer_id": referrer_id},
             {"$set": {"status": "completed", "commission": commission, "completed_at": datetime.utcnow()}}
         )
         
+        # Notify referrer
         try:
             bot.send_message(
                 referrer_id,
@@ -245,6 +256,7 @@ def add_referral_commission(referrer_id, recharge_amount, recharge_id):
         logger.error(f"Error adding referral commission: {e}")
 
 def has_user_joined_channel(user_id):
+    """Check if user has joined the required channel"""
     try:
         member = bot.get_chat_member(MUST_JOIN_CHANNEL, user_id)
         return member.status in ['member', 'administrator', 'creator']
@@ -252,10 +264,15 @@ def has_user_joined_channel(user_id):
         logger.error(f"Error checking channel membership: {e}")
         return False
 
+# -----------------------
+# ADDED: COUPON UTILITY FUNCTIONS
+# -----------------------
 def get_coupon(code):
+    """Get coupon by code"""
     return coupons_col.find_one({"coupon_code": code})
 
 def is_coupon_claimed_by_user(coupon_code, user_id):
+    """Check if user has already claimed this coupon"""
     coupon = get_coupon(coupon_code)
     if not coupon:
         return False
@@ -263,28 +280,34 @@ def is_coupon_claimed_by_user(coupon_code, user_id):
     return user_id in claimed_users
 
 def claim_coupon(coupon_code, user_id):
+    """Claim coupon for user"""
     try:
         coupon = get_coupon(coupon_code)
         if not coupon:
             return False, "Coupon not found"
         
+        # Check if user already claimed
         if user_id in coupon.get("claimed_users", []):
             return False, "Already claimed"
         
+        # Check if coupon is active
         if coupon.get("status") != "active":
             status = coupon.get("status", "inactive")
             return False, f"Coupon {status}"
         
+        # Check if fully claimed
         total_claimed = coupon.get("total_claimed_count", 0)
         max_users = coupon.get("max_users", 0)
         
         if total_claimed >= max_users:
+            # Auto-expire fully claimed coupon
             coupons_col.update_one(
                 {"coupon_code": coupon_code},
                 {"$set": {"status": "expired"}}
             )
             return False, "Fully claimed"
         
+        # Update coupon
         result = coupons_col.update_one(
             {
                 "coupon_code": coupon_code,
@@ -304,9 +327,11 @@ def claim_coupon(coupon_code, user_id):
         if result.modified_count == 0:
             return False, "Coupon no longer available"
         
+        # Add balance to user
         amount = coupon.get("amount", 0)
         add_balance(user_id, amount)
         
+        # Record transaction
         transaction_id = f"CPN{user_id}{int(time.time())}"
         transaction_record = {
             "transaction_id": transaction_id,
@@ -319,6 +344,7 @@ def claim_coupon(coupon_code, user_id):
         }
         transactions_col.insert_one(transaction_record)
         
+        # Check if coupon is now fully claimed
         updated_coupon = get_coupon(coupon_code)
         if updated_coupon and updated_coupon.get("total_claimed_count", 0) >= max_users:
             coupons_col.update_one(
@@ -333,16 +359,20 @@ def claim_coupon(coupon_code, user_id):
         return False, "Error processing coupon"
 
 def create_coupon(code, amount, max_users, created_by):
+    """Create new coupon"""
     try:
+        # Validate
         if amount < 1:
             return False, "Amount must be at least ₹1"
         if max_users < 1:
             return False, "Max users must be at least 1"
         
+        # Check if code already exists
         existing = get_coupon(code)
         if existing:
             return False, "Coupon code already exists"
         
+        # Create coupon
         coupon_data = {
             "coupon_code": code,
             "amount": float(amount),
@@ -362,11 +392,13 @@ def create_coupon(code, amount, max_users, created_by):
         return False, f"Error: {str(e)}"
 
 def remove_coupon(code, removed_by):
+    """Remove coupon"""
     try:
         coupon = get_coupon(code)
         if not coupon:
             return False, "Coupon not found"
         
+        # Update coupon status
         result = coupons_col.update_one(
             {"coupon_code": code},
             {"$set": {
@@ -386,6 +418,7 @@ def remove_coupon(code, removed_by):
         return False, f"Error: {str(e)}"
 
 def get_coupon_status(code):
+    """Get detailed coupon status"""
     coupon = get_coupon(code)
     if not coupon:
         return None
@@ -403,18 +436,24 @@ def get_coupon_status(code):
         "status": coupon.get("status", "unknown"),
         "created_at": coupon.get("created_at"),
         "created_by": coupon.get("created_by"),
-        "claimed_users": coupon.get("claimed_users", [])[:10]
+        "claimed_users": coupon.get("claimed_users", [])[:10]  # First 10 users
     }
 
+# -----------------------
+# ADDED: UI HELPER FUNCTIONS
+# -----------------------
 def edit_or_resend(chat_id, message_id, text, markup=None, parse_mode=None, photo_url=None):
+    """Edit message if possible, otherwise delete and send new"""
     try:
         if photo_url:
+            # For photos, we need to send new message
             try:
                 bot.delete_message(chat_id, message_id)
             except:
                 pass
             return bot.send_photo(chat_id, photo_url, caption=text, parse_mode=parse_mode, reply_markup=markup)
         else:
+            # For text messages, try to edit first
             try:
                 return bot.edit_message_text(
                     text,
@@ -424,6 +463,7 @@ def edit_or_resend(chat_id, message_id, text, markup=None, parse_mode=None, phot
                     reply_markup=markup
                 )
             except Exception as e:
+                # If edit fails, delete and send new
                 try:
                     bot.delete_message(chat_id, message_id)
                 except:
@@ -434,34 +474,36 @@ def edit_or_resend(chat_id, message_id, text, markup=None, parse_mode=None, phot
         return bot.send_message(chat_id, text, parse_mode=parse_mode, reply_markup=markup)
 
 def clean_ui_and_send_menu(chat_id, user_id, text=None, markup=None):
+    """Clean UI and send main menu"""
     try:
+        # Try to delete the previous message
         if user_id in user_last_message:
             try:
                 bot.delete_message(chat_id, user_last_message[user_id])
             except:
                 pass
         
-        caption = "╔══════════════════╗\n" \
-                  "    🥂 <b>OGGY OTP SHOP</b> 🥂    \n" \
-                  "╚══════════════════╝\n\n" \
-                  "<blockquote><b>✨ Features:</b>\n" \
-                  "• Automatic OTPs 📍\n" \
-                  "• Easy to Use 🥂🥂\n" \
-                  "• 24/7 Support 👨‍🔧\n" \
-                  "• Instant Payment Approvals 🧾</blockquote>\n\n" \
-                  "▰▰▰▰▰▰▰▰▰▰▰▰▰▰\n\n" \
-                  "<blockquote><b>🚀 How to Use:</b>\n" \
-                  "1️⃣ Recharge Wallet\n" \
-                  "2️⃣ Select Country\n" \
-                  "3️⃣ Buy Account\n" \
-                  "4️⃣ Login via Telegram X\n" \
-                  "5️⃣ Receive OTP & You're Done ✅</blockquote>\n\n" \
-                  "▰▰▰▰▰▰▰▰▰▰▰▰▰▰\n\n" \
-                  "◈ <b>OWNER :</b> @UROGGY\n" \
-                  "◈ <b>DEV :</b> OGGY\n" \
-                  "◈ <b>VERSION :</b> 2.0\n" \
-                  "▰▰▰▰▰▰▰▰▰▰▰▰▰▰"
-        
+        # Send main menu with proper image
+        caption = "<blockquote>🥂 <b>Welcome To OTP Bot By Ruhan</b> 🥂</blockquote>\n" \
+          "<blockquote><b>✨ Features:</b>\n" \
+          "• Automatic OTPs 📍\n" \
+          "• Easy to Use 🥂🥂\n" \
+          "• 24/7 Support 👨‍🔧\n" \
+          "• Instant Payment Approvals 🧾</blockquote>\n" \
+          "<blockquote><b>💳 How to Recharge:</b>\n" \
+          "1️⃣ Click Recharge Button\n" \
+          "2️⃣ Choose Payment Method\n" \
+          "3️⃣ Send Payment Proof\n" \
+          "4️⃣ Admin Approves Instantly ✅</blockquote>\n" \
+          "<blockquote><b>🚀 How to Use:</b>\n" \
+          "1️⃣ Recharge Wallet\n" \
+          "2️⃣ Select Country\n" \
+          "3️⃣ Buy Account\n" \
+          "4️⃣ Login via Telegram X/Terbotel\n" \
+          "5️⃣ Receive OTP & You're Done ✅</blockquote>\n" \
+          "<blockquote>🚀 <b>Enjoy Fast Account Buying Experience!</b></blockquote>"
+
+     
         if markup is None:
             markup = InlineKeyboardMarkup(row_width=2)
             markup.add(
@@ -480,10 +522,11 @@ def clean_ui_and_send_menu(chat_id, user_id, text=None, markup=None):
             if is_admin(user_id):
                 markup.add(InlineKeyboardButton("👑 Admin Panel", callback_data="admin_panel"))
         
+        # Send new message
         try:
             sent_msg = bot.send_photo(
                 chat_id,
-                "https://files.catbox.moe/gfsb3f.png",
+                "https://files.catbox.moe/hihx1r.jpg",
                 caption=text or caption,
                 parse_mode="HTML",
                 reply_markup=markup
@@ -502,11 +545,16 @@ def clean_ui_and_send_menu(chat_id, user_id, text=None, markup=None):
     except Exception as e:
         logger.error(f"Error in clean_ui_and_send_menu: {e}")
 
+
+# -----------------------
+# BOT HANDLERS
+# -----------------------
 @bot.message_handler(commands=['start'])
 def start(msg):
     user_id = msg.from_user.id
     logger.info(f"Start command from user {user_id}")
     
+    # Check if user is banned
     if is_user_banned(user_id):
         try:
             bot.delete_message(msg.chat.id, msg.message_id)
@@ -514,7 +562,9 @@ def start(msg):
             pass
         return
     
+    # Check if user has joined the channel
     if not has_user_joined_channel(user_id):
+        # Show join message with buttons
         caption = """<blockquote><b>🚀 Join Our Channel First!</b>
 
 📢 To use this bot, you must join our official channel.
@@ -532,7 +582,7 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
         try:
             bot.send_photo(
                 user_id,
-                "https://files.catbox.moe/gfsb3f.png",
+                "https://files.catbox.moe/hihx1r.jpg",
                 caption=caption,
                 parse_mode="HTML",
                 reply_markup=markup
@@ -547,12 +597,14 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
             )
         return
     
+    # Check for referral parameter
     referred_by = None
     if len(msg.text.split()) > 1:
         referral_code = msg.text.split()[1]
         if referral_code.startswith('REF'):
             try:
                 referrer_id = int(referral_code[3:])
+                # Verify referrer exists
                 referrer = users_col.find_one({"user_id": referrer_id})
                 if referrer:
                     referred_by = referrer_id
@@ -562,6 +614,7 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
     
     ensure_user_exists(user_id, msg.from_user.first_name, msg.from_user.username, referred_by)
     
+    # Clean UI and send main menu
     clean_ui_and_send_menu(user_id, user_id)
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -569,6 +622,7 @@ def handle_callbacks(call):
     user_id = call.from_user.id
     data = call.data
     
+    # Check if user is banned
     if is_user_banned(user_id):
         bot.answer_callback_query(call.id, "🚫 Your account is banned", show_alert=True)
         return
@@ -576,8 +630,10 @@ def handle_callbacks(call):
     logger.info(f"Callback received: {data} from user {user_id}")
     
     try:
+        # TASK 1: Verify Join handler
         if data == "verify_join":
             if has_user_joined_channel(user_id):
+                # ✅ Delete MUST JOIN message
                 try:
                     bot.delete_message(
                         call.message.chat.id,
@@ -586,6 +642,7 @@ def handle_callbacks(call):
                 except:
                     pass
 
+                # ✅ Show Main Menu
                 clean_ui_and_send_menu(call.message.chat.id, user_id)
 
                 bot.answer_callback_query(
@@ -595,6 +652,7 @@ def handle_callbacks(call):
                 )
 
             else:
+                # ❌ User not joined → show MUST JOIN again
                 caption = """<blockquote><b>🚀 Join Our Channel First!</b>
 
 📢 To use this bot, you must join our official channel.
@@ -642,6 +700,7 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
                 )
         
         elif data == "buy_account":
+            # Check if user has joined channel
             if not has_user_joined_channel(user_id):
                 bot.answer_callback_query(call.id, "❌ Please join our channel first!", show_alert=True)
                 start(call.message)
@@ -654,6 +713,7 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
             show_countries(call.message.chat.id)
             
         elif data == "balance":
+            # Check if user has joined channel
             if not has_user_joined_channel(user_id):
                 bot.answer_callback_query(call.id, "❌ Please join our channel first!", show_alert=True)
                 start(call.message)
@@ -673,6 +733,7 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
             markup = InlineKeyboardMarkup()
             markup.add(InlineKeyboardButton("⬅️ Back", callback_data="back_to_menu"))
             
+            # Store last message ID for cleanup
             sent_msg = bot.send_message(
                 call.message.chat.id,
                 message,
@@ -681,12 +742,15 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
             )
             user_last_message[user_id] = sent_msg.message_id
             
+            # Try to delete previous message
             try:
                 bot.delete_message(call.message.chat.id, call.message.message_id)
             except:
                 pass
         
+        # ADDED: Redeem Coupon callback
         elif data == "redeem_coupon":
+            # Check if user has joined channel
             if not has_user_joined_channel(user_id):
                 bot.answer_callback_query(call.id, "❌ Please join our channel first!", show_alert=True)
                 start(call.message)
@@ -704,6 +768,7 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
             )
             user_last_message[user_id] = sent_msg.message_id
             
+            # Try to delete previous message
             try:
                 bot.delete_message(call.message.chat.id, call.message.message_id)
             except:
@@ -712,6 +777,7 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
             user_stage[user_id] = "waiting_coupon"
         
         elif data == "recharge":
+            # Check if user has joined channel
             if not has_user_joined_channel(user_id):
                 bot.answer_callback_query(call.id, "❌ Please join our channel first!", show_alert=True)
                 start(call.message)
@@ -720,6 +786,7 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
             show_recharge_methods(call.message.chat.id, call.message.message_id, user_id)
         
         elif data == "refer_friends":
+            # Check if user has joined channel
             if not has_user_joined_channel(user_id):
                 bot.answer_callback_query(call.id, "❌ Please join our channel first!", show_alert=True)
                 start(call.message)
@@ -727,18 +794,20 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
             
             show_referral_info(user_id, call.message.chat.id)
             
+            # Try to delete previous message
             try:
                 bot.delete_message(call.message.chat.id, call.message.message_id)
             except:
                 pass
         
         elif data == "support":
+            # Check if user has joined channel
             if not has_user_joined_channel(user_id):
                 bot.answer_callback_query(call.id, "❌ Please join our channel first!", show_alert=True)
                 start(call.message)
                 return
             
-            msg_text = "🛠️ Support: @UROGGY"
+            msg_text = "🛠️ Support: @ll_RUHAN_ll"
             markup = InlineKeyboardMarkup()
             markup.add(InlineKeyboardButton("⬅️ Back", callback_data="back_to_menu"))
             
@@ -749,6 +818,7 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
             )
             user_last_message[user_id] = sent_msg.message_id
             
+            # Try to delete previous message
             try:
                 bot.delete_message(call.message.chat.id, call.message.message_id)
             except:
@@ -765,6 +835,7 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
                 bot.answer_callback_query(call.id, "❌ Unauthorized", show_alert=True)
         
         elif data.startswith("country_raw_"):
+            # Check if user has joined channel
             if not has_user_joined_channel(user_id):
                 bot.answer_callback_query(call.id, "❌ Please join our channel first!", show_alert=True)
                 start(call.message)
@@ -774,6 +845,7 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
             show_country_details(user_id, country_name, call.message.chat.id, call.message.message_id, call.id)
         
         elif data.startswith("buy_"):
+            # Check if user has joined channel
             if not has_user_joined_channel(user_id):
                 bot.answer_callback_query(call.id, "❌ Please join our channel first!", show_alert=True)
                 start(call.message)
@@ -787,6 +859,7 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
             handle_logout_session(user_id, session_id, call.message.chat.id, call.id)
         
         elif data.startswith("get_otp_"):
+            # Check if user has joined channel
             if not has_user_joined_channel(user_id):
                 bot.answer_callback_query(call.id, "❌ Please join our channel first!", show_alert=True)
                 start(call.message)
@@ -796,6 +869,7 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
             get_latest_otp(user_id, session_id, call.message.chat.id, call.id)
         
         elif data == "back_to_countries":
+            # Check if user has joined channel
             if not has_user_joined_channel(user_id):
                 bot.answer_callback_query(call.id, "❌ Please join our channel first!", show_alert=True)
                 start(call.message)
@@ -808,9 +882,12 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
             show_countries(call.message.chat.id)
         
         elif data == "back_to_menu":
+            # Clean UI and show main menu
             clean_ui_and_send_menu(call.message.chat.id, user_id)
         
+        # UPDATED: Recharge methods (UPI and Crypto)
         elif data == "recharge_upi":
+            # Check if user has joined channel
             if not has_user_joined_channel(user_id):
                 bot.answer_callback_query(call.id, "❌ Please join our channel first!", show_alert=True)
                 start(call.message)
@@ -828,6 +905,7 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
             bot.register_next_step_handler(call.message, process_recharge_amount)
         
         elif data == "recharge_crypto":
+            # Check if user has joined channel
             if not has_user_joined_channel(user_id):
                 bot.answer_callback_query(call.id, "❌ Please join our channel first!", show_alert=True)
                 start(call.message)
@@ -844,6 +922,7 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
             )
             bot.register_next_step_handler(call.message, process_recharge_amount)
         
+        # ADDED: UPI Payment Flow callback
         elif data == "upi_deposited":
             user_id = call.from_user.id
             amount = upi_payment_states.get(user_id, {}).get("amount", 0)
@@ -852,8 +931,10 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
                 bot.answer_callback_query(call.id, "❌ Invalid amount", show_alert=True)
                 return
             
+            # Ask for UTR
             bot.answer_callback_query(call.id, "📝 Please send your 12-digit UTR number", show_alert=False)
             
+            # Store state
             upi_payment_states[user_id] = {
                 "step": "waiting_utr",
                 "amount": amount,
@@ -868,6 +949,7 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
             )
         
         elif data.startswith("approve_rech|") or data.startswith("cancel_rech|"):
+            # Manual recharge approval
             if is_admin(user_id):
                 parts = data.split("|")
                 action = parts[0]
@@ -889,6 +971,7 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
                     )
                     bot.answer_callback_query(call.id, "✅ Recharge approved", show_alert=True)
                     
+                    # Check for referral commission
                     user_data = users_col.find_one({"user_id": user_target})
                     if user_data and user_data.get("referred_by"):
                         add_referral_commission(user_data["referred_by"], amount, req)
@@ -896,6 +979,7 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
                     kb = InlineKeyboardMarkup()
                     kb.add(InlineKeyboardButton("🛒 Buy Account Now", callback_data="buy_account"))
                     
+                    # Delete admin message
                     try:
                         bot.delete_message(call.message.chat.id, call.message.message_id)
                     except:
@@ -917,6 +1001,7 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
                     )
                     bot.answer_callback_query(call.id, "❌ Recharge cancelled", show_alert=True)
                     
+                    # Delete admin message
                     try:
                         bot.delete_message(call.message.chat.id, call.message.message_id)
                     except:
@@ -932,12 +1017,14 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
                 bot.answer_callback_query(call.id, "❌ Unauthorized", show_alert=True)
                 return
             
+            # Start new Pyrogram login flow
             login_states[user_id] = {
                 "step": "select_country",
                 "message_id": call.message.message_id,
                 "chat_id": call.message.chat.id
             }
             
+            # Show country selection
             countries = get_all_countries()
             if not countries:
                 bot.answer_callback_query(call.id, "❌ No countries available. Add a country first.", show_alert=True)
@@ -967,6 +1054,7 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
         elif data == "out_of_stock":
             bot.answer_callback_query(call.id, "❌ Out of Stock! No accounts available.", show_alert=True)
         
+        # TASK 2: Edit Price callback handlers
         elif data == "edit_price":
             if is_admin(user_id):
                 bot.answer_callback_query(call.id, "Processing...")
@@ -1011,6 +1099,7 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
             else:
                 bot.answer_callback_query(call.id, "❌ Unauthorized", show_alert=True)
         
+        # ADDED: Admin Coupon Management callbacks
         elif data == "admin_coupon_menu":
             if is_admin(user_id):
                 bot.answer_callback_query(call.id, "🎟 Coupon Management")
@@ -1066,6 +1155,7 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
             else:
                 bot.answer_callback_query(call.id, "❌ Unauthorized", show_alert=True)
         
+        # ADMIN FEATURES - BROADCAST FIXED
         elif data == "broadcast_menu":
             if is_admin(user_id):
                 bot.answer_callback_query(call.id, "📢 Reply any photo / document / video / text with /sendbroadcast")
@@ -1101,6 +1191,7 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
                 bot.answer_callback_query(call.id, "Processing...")
                 admin_deduct_state[user_id] = {"step": "ask_user_id"}
                 msg = bot.send_message(call.message.chat.id, "👤 Enter User ID whose balance you want to deduct:")
+                # Clear any previous broadcast state
                 if user_id in broadcast_data:
                     del broadcast_data[user_id]
             else:
@@ -1147,6 +1238,7 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
         elif data.startswith("remove_country_"):
             if is_admin(user_id):
                 country_name = data.split("_", 2)[2]
+                # Actually remove the country
                 result = remove_country(country_name, call.message.chat.id, call.message.message_id)
                 bot.answer_callback_query(call.id, result, show_alert=True)
             else:
@@ -1167,15 +1259,17 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
 def show_main_menu(chat_id):
     user_id = chat_id
     
+    # Check if user is banned
     if is_user_banned(user_id):
         bot.send_message(
             user_id,
             "🚫 **Account Banned**\n\n"
             "Your account has been banned from using this bot.\n"
-            "Contact admin @UROGGY for assistance."
+            "Contact admin @NOBITA_USA_903 for assistance."
         )
         return
     
+    # Check if user has joined channel
     if not has_user_joined_channel(user_id):
         start(bot.send_message(user_id, "/start"))
         return
@@ -1183,14 +1277,18 @@ def show_main_menu(chat_id):
     clean_ui_and_send_menu(chat_id, user_id)
 
 def show_country_details(user_id, country_name, chat_id, message_id, callback_id):
+    """Show country details page"""
     try:
+        # Get country details
         country = get_country_by_name(country_name)
         if not country:
             bot.answer_callback_query(callback_id, "❌ Country not found", show_alert=True)
             return
         
+        # Get available accounts
         accounts_count = get_available_accounts_count(country_name)
         
+        # Format message with quote
         text = f"""⚡ <b>Telegram Account Info</b>
 
 <blockquote>🌍 Country : {country_name}
@@ -1205,17 +1303,20 @@ def show_country_details(user_id, country_name, chat_id, message_id, callback_id
         markup = InlineKeyboardMarkup(row_width=2)
         
         if accounts_count > 0:
+            # Get all available accounts
             accounts = list(accounts_col.find({
                 "country": country_name,
                 "status": "active",
                 "used": False
             }))
             
+            # Show Buy Account button
             markup.add(InlineKeyboardButton(
                 "🛒 Buy Account",
                 callback_data=f"buy_{accounts[0]['_id']}" if accounts else "out_of_stock"
             ))
         else:
+            # No accounts available - still show buy button with out of stock alert
             markup.add(InlineKeyboardButton(
                 "🛒 Buy Account",
                 callback_data="out_of_stock"
@@ -1260,10 +1361,12 @@ def handle_login_country_selection(call):
 def handle_cancel_login(call):
     user_id = call.from_user.id
     
+    # Cleanup any active client
     if user_id in login_states:
         state = login_states[user_id]
         if "client" in state:
             try:
+                # Cleanup client if account_manager and account_manager.pyrogram_manager:
                 import asyncio
                 asyncio.run(account_manager.pyrogram_manager.safe_disconnect(state["client"]))
             except:
@@ -1280,6 +1383,7 @@ def handle_cancel_login(call):
     show_admin_panel(call.message.chat.id)
 
 def handle_logout_session(user_id, session_id, chat_id, callback_id):
+    """Handle user logout from session"""
     try:
         if not account_manager:
             bot.answer_callback_query(callback_id, "❌ Account module not loaded", show_alert=True)
@@ -1297,6 +1401,7 @@ def handle_logout_session(user_id, session_id, chat_id, callback_id):
             except:
                 pass
             
+            # TASK 3: Add Main Menu button to logout success message
             markup = InlineKeyboardMarkup()
             markup.add(InlineKeyboardButton("🏠 Main Menu", callback_data="back_to_menu"))
             
@@ -1317,17 +1422,22 @@ def handle_logout_session(user_id, session_id, chat_id, callback_id):
         bot.answer_callback_query(callback_id, "❌ Error logging out", show_alert=True)
 
 def get_latest_otp(user_id, session_id, chat_id, callback_id):
+    """Get the latest OTP for a session - SHOWS ONLY WHEN CLICKED"""
     try:
+        # Find the session
         session_data = otp_sessions_col.find_one({"session_id": session_id})
         if not session_data:
             bot.answer_callback_query(callback_id, "❌ Session not found", show_alert=True)
             return
         
+        # Check if OTP already exists in database
         existing_otp = session_data.get("last_otp")
         if existing_otp:
+            # OTP already in database, show it
             otp_code = existing_otp
             logger.info(f"Using existing OTP from database: {otp_code}")
         else:
+            # Try to get latest OTP from session
             bot.answer_callback_query(callback_id, "🔍 Searching for OTP...", show_alert=False)
             session_string = session_data.get("session_string")
             if not session_string:
@@ -1339,6 +1449,7 @@ def get_latest_otp(user_id, session_id, chat_id, callback_id):
                 bot.answer_callback_query(callback_id, "❌ No OTP received yet", show_alert=True)
                 return
             
+            # Save to database
             otp_sessions_col.update_one(
                 {"session_id": session_id},
                 {"$set": {
@@ -1349,6 +1460,7 @@ def get_latest_otp(user_id, session_id, chat_id, callback_id):
                 }}
             )
         
+        # Get account details for 2FA password
         account_id = session_data.get("account_id")
         account = None
         two_step_password = ""
@@ -1360,6 +1472,7 @@ def get_latest_otp(user_id, session_id, chat_id, callback_id):
             except:
                 pass
         
+        # Create message
         message = f"✅ **Latest OTP**\n\n"
         message += f"📱 Phone: `{session_data.get('phone', 'N/A')}`\n"
         message += f"🔢 OTP Code: `{otp_code}`\n"
@@ -1370,12 +1483,14 @@ def get_latest_otp(user_id, session_id, chat_id, callback_id):
         message += f"\n⏰ Time: {datetime.utcnow().strftime('%H:%M:%S')}"
         message += f"\n\nEnter this code in Telegram X app."
         
+        # Create inline keyboard with BOTH buttons
         markup = InlineKeyboardMarkup(row_width=2)
         markup.add(
             InlineKeyboardButton("🔄 Get OTP Again", callback_data=f"get_otp_{session_id}"),
             InlineKeyboardButton("🚪 Logout", callback_data=f"logout_session_{session_id}")
         )
         
+        # Try to edit existing message
         try:
             bot.edit_message_text(
                 message,
@@ -1385,6 +1500,7 @@ def get_latest_otp(user_id, session_id, chat_id, callback_id):
                 reply_markup=markup
             )
         except:
+            # If editing fails, send new message
             sent_msg = bot.send_message(
                 chat_id,
                 message,
@@ -1399,7 +1515,11 @@ def get_latest_otp(user_id, session_id, chat_id, callback_id):
         logger.error(f"Get OTP error: {e}")
         bot.answer_callback_query(callback_id, "❌ Error getting OTP", show_alert=True)
 
+# -----------------------
+# ADDED: COUPON MANAGEMENT FUNCTIONS
+# -----------------------
 def show_coupon_management(chat_id, message_id=None):
+    """Show coupon management menu for admin"""
     if not is_admin(chat_id):
         bot.send_message(chat_id, "❌ Unauthorized access")
         return
@@ -1426,6 +1546,9 @@ def show_coupon_management(chat_id, message_id=None):
     else:
         bot.send_message(chat_id, text, reply_markup=markup, parse_mode="Markdown")
 
+# -----------------------
+# ADDED: COUPON MESSAGE HANDLERS
+# -----------------------
 @bot.message_handler(func=lambda m: user_stage.get(m.from_user.id) == "waiting_coupon")
 def handle_coupon_input(msg):
     user_id = msg.from_user.id
@@ -1435,8 +1558,10 @@ def handle_coupon_input(msg):
     
     coupon_code = msg.text.strip().upper()
     
+    # Clean previous state
     user_stage.pop(user_id, None)
     
+    # Check coupon
     success, result = claim_coupon(coupon_code, user_id)
     
     if success:
@@ -1514,6 +1639,7 @@ def handle_coupon_code_input(msg):
         bot.send_message(msg.chat.id, "❌ Coupon code cannot be empty. Enter coupon code:")
         return
     
+    # Check if code already exists
     existing = get_coupon(code)
     if existing:
         bot.send_message(
@@ -1588,6 +1714,7 @@ def handle_coupon_max_users_input(msg):
         code = coupon_state[user_id]["code"]
         amount = coupon_state[user_id]["amount"]
         
+        # Create coupon
         success, message = create_coupon(code, amount, max_users, user_id)
         
         if success:
@@ -1613,6 +1740,7 @@ def handle_coupon_max_users_input(msg):
                 f"Try again or contact support."
             )
         
+        # Cleanup state
         coupon_state.pop(user_id, None)
     
     except ValueError:
@@ -1632,6 +1760,7 @@ def handle_coupon_remove_input(msg):
     
     code = msg.text.strip().upper()
     
+    # Remove coupon
     success, message = remove_coupon(code, user_id)
     
     if success:
@@ -1667,6 +1796,7 @@ def handle_coupon_remove_input(msg):
             reply_markup=markup
         )
     
+    # Cleanup state
     coupon_state.pop(user_id, None)
 
 @bot.message_handler(func=lambda m: coupon_state.get(m.from_user.id, {}).get("step") == "ask_status_code")
@@ -1683,6 +1813,7 @@ def handle_coupon_status_input(msg):
     
     code = msg.text.strip().upper()
     
+    # Get coupon status
     status = get_coupon_status(code)
     
     if not status:
@@ -1705,7 +1836,7 @@ def handle_coupon_status_input(msg):
         text += f"✅ Claimed: {status['claimed']}\n"
         text += f"🔄 Remaining: {status['remaining']}\n"
         text += f"📊 Status: {status_text}\n"
-        text += f"📅 Created: {status['created_at'].strftime('%Y-%m-%d %H:%M') if status['created_at'] else 'N/A'}\n"
+        text += f"📅 Created: {status['created_at'].strftime('%Y-%m-d %H:%M') if status['created_at'] else 'N/A'}\n"
         
         if status['claimed'] > 0:
             text += f"\n👤 Recent Users (first 10):\n"
@@ -1722,9 +1853,14 @@ def handle_coupon_status_input(msg):
         reply_markup=markup
     )
     
+    # Cleanup state
     coupon_state.pop(user_id, None)
 
+# -----------------------
+# UPDATED: RECHARGE METHODS FUNCTIONS
+# -----------------------
 def show_recharge_methods(chat_id, message_id, user_id):
+    """Show recharge methods (UPI and Crypto)"""
     text = "💳 **Select Payment Method**\n\nChoose your preferred payment method:"
     markup = InlineKeyboardMarkup(row_width=2)
     markup.add(
@@ -1741,6 +1877,7 @@ def show_recharge_methods(chat_id, message_id, user_id):
     )
 
 def process_recharge_amount(msg):
+    """Process recharge amount for UPI"""
     try:
         amount = float(msg.text)
         if amount < 1:
@@ -1750,10 +1887,11 @@ def process_recharge_amount(msg):
         
         user_id = msg.from_user.id
         
+        # UPI Payment Details with Deposit Button
         caption = f"""<blockquote>💳 <b>UPI Payment Details</b>
 
 💰 Amount: {format_currency(amount)}
-📱 UPI ID: <code>anurag99999@fam</code>
+📱 UPI ID: <code>therealtanish@fam</code>
 </blockquote>
 
 <blockquote>📋 <b>Instructions:</b>
@@ -1761,9 +1899,11 @@ def process_recharge_amount(msg):
 2. After payment, click **Deposited ✅** button
 3. Follow the steps to submit proof</blockquote>"""
         
+        # Send QR code image with Deposit Button
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("💰 Deposited ✅", callback_data="upi_deposited"))
         
+        # Store amount in state
         upi_payment_states[user_id] = {
             "amount": amount,
             "step": "qr_shown"
@@ -1771,7 +1911,7 @@ def process_recharge_amount(msg):
         
         bot.send_photo(
             msg.chat.id,
-            "https://files.catbox.moe/a310jr.jpg",
+            "https://files.catbox.moe/5lysk0.jpg",
             caption=caption,
             parse_mode="HTML",
             reply_markup=markup
@@ -1781,6 +1921,7 @@ def process_recharge_amount(msg):
         bot.send_message(msg.chat.id, "❌ Invalid amount. Enter numbers only:")
         bot.register_next_step_handler(msg, process_recharge_amount)
 
+# ADDED: UPI Payment Flow Message Handlers
 @bot.message_handler(func=lambda m: upi_payment_states.get(m.from_user.id, {}).get("step") == "waiting_utr")
 def handle_utr_input(msg):
     user_id = msg.from_user.id
@@ -1790,10 +1931,12 @@ def handle_utr_input(msg):
     
     utr = msg.text.strip()
     
+    # Validate UTR
     if not utr.isdigit() or len(utr) != 12:
         bot.send_message(msg.chat.id, "❌ Invalid UTR. Please enter a valid 12-digit UTR number:")
         return
     
+    # Store UTR and move to next step
     upi_payment_states[user_id]["utr"] = utr
     upi_payment_states[user_id]["step"] = "waiting_screenshot"
     
@@ -1812,11 +1955,14 @@ def handle_screenshot_input(msg):
     if user_id not in upi_payment_states or upi_payment_states[user_id]["step"] != "waiting_screenshot":
         return
     
+    # Get screenshot file_id
     screenshot_file_id = msg.photo[-1].file_id
     
+    # Get payment data
     amount = upi_payment_states[user_id]["amount"]
     utr = upi_payment_states[user_id].get("utr", "")
     
+    # Create recharge record
     recharge_data = {
         "user_id": user_id,
         "amount": amount,
@@ -1829,12 +1975,14 @@ def handle_screenshot_input(msg):
     }
     recharge_id = recharges_col.insert_one(recharge_data).inserted_id
     
+    # Create unique request ID
     req_id = f"R{int(time.time())}{user_id}"
     recharges_col.update_one(
         {"_id": ObjectId(recharge_id)},
         {"$set": {"req_id": req_id}}
     )
     
+    # Prepare admin message
     admin_caption = f"""📋 **UPI Payment Request**
 
 👤 User: {user_id}
@@ -1845,12 +1993,14 @@ def handle_screenshot_input(msg):
 
 ✅ Both UTR and Screenshot received."""
 
+    # Send to admin with buttons
     markup = InlineKeyboardMarkup(row_width=2)
     markup.add(
         InlineKeyboardButton("✅ Approve", callback_data=f"approve_rech|{req_id}"),
         InlineKeyboardButton("❌ Reject", callback_data=f"cancel_rech|{req_id}")
     )
     
+    # Send screenshot to admin
     bot.send_photo(
         ADMIN_ID,
         screenshot_file_id,
@@ -1859,6 +2009,7 @@ def handle_screenshot_input(msg):
         reply_markup=markup
     )
     
+    # Confirm to user
     bot.send_message(
         msg.chat.id,
         f"✅ **Payment Proof Submitted Successfully!**\n\n"
@@ -1871,9 +2022,14 @@ def handle_screenshot_input(msg):
         f"Admin will review and approve soon. Thank you! 🎉"
     )
     
+    # Cleanup state
     upi_payment_states.pop(user_id, None)
 
+# -----------------------
+# TASK 2: EDIT PRICE FUNCTIONS
+# -----------------------
 def show_edit_price_country_selection(chat_id, message_id=None):
+    """Show countries for price editing"""
     if not is_admin(chat_id):
         bot.send_message(chat_id, "❌ Unauthorized access")
         return
@@ -1915,6 +2071,7 @@ def show_edit_price_country_selection(chat_id, message_id=None):
         bot.send_message(chat_id, text, reply_markup=markup, parse_mode="Markdown")
 
 def show_edit_price_details(chat_id, message_id, country_name):
+    """Show country details for price editing"""
     if not is_admin(chat_id):
         bot.send_message(chat_id, "❌ Unauthorized access")
         return
@@ -1952,6 +2109,9 @@ def show_edit_price_details(chat_id, message_id, country_name):
         parse_mode="Markdown"
     )
 
+# -----------------------
+# MESSAGE HANDLER FOR LOGIN FLOW
+# -----------------------
 @bot.message_handler(func=lambda m: login_states.get(m.from_user.id, {}).get("step") in ["phone", "waiting_otp", "waiting_password"])
 def handle_login_flow_messages(msg):
     user_id = msg.from_user.id
@@ -1965,11 +2125,13 @@ def handle_login_flow_messages(msg):
     message_id = state["message_id"]
     
     if step == "phone":
+        # Process phone number
         phone = msg.text.strip()
         if not re.match(r'^\+\d{10,15}$', phone):
             bot.send_message(chat_id, "❌ Invalid phone number format. Please enter with country code:\nExample: +919876543210")
             return
         
+        # Check if account manager is loaded
         if not account_manager:
             try:
                 bot.edit_message_text(
@@ -1981,6 +2143,7 @@ def handle_login_flow_messages(msg):
             login_states.pop(user_id, None)
             return
         
+        # Start Pyrogram login flow using account manager
         try:
             success, message = account_manager.pyrogram_login_flow_sync(
                 login_states, accounts_col, user_id, phone, chat_id, message_id, state["country"]
@@ -2020,11 +2183,13 @@ def handle_login_flow_messages(msg):
             login_states.pop(user_id, None)
     
     elif step == "waiting_otp":
+        # Process OTP
         otp = msg.text.strip()
         if not otp.isdigit() or len(otp) != 5:
             bot.send_message(chat_id, "❌ Invalid OTP format. Please enter 5-digit OTP:")
             return
         
+        # Check if account manager is loaded
         if not account_manager:
             try:
                 bot.edit_message_text(
@@ -2042,6 +2207,7 @@ def handle_login_flow_messages(msg):
             )
             
             if success:
+                # Account added successfully
                 country = state["country"]
                 phone = state["phone"]
                 try:
@@ -2055,9 +2221,11 @@ def handle_login_flow_messages(msg):
                     )
                 except:
                     pass
+                # Cleanup
                 login_states.pop(user_id, None)
             
             elif message == "password_required":
+                # 2FA required
                 try:
                     bot.edit_message_text(
                         f"📱 Phone: {state['phone']}\n\n"
@@ -2093,11 +2261,13 @@ def handle_login_flow_messages(msg):
             login_states.pop(user_id, None)
     
     elif step == "waiting_password":
+        # Process 2FA password
         password = msg.text.strip()
         if not password:
             bot.send_message(chat_id, "❌ Password cannot be empty. Enter 2FA password:")
             return
         
+        # Check if account manager is loaded
         if not account_manager:
             try:
                 bot.edit_message_text(
@@ -2115,6 +2285,7 @@ def handle_login_flow_messages(msg):
             )
             
             if success:
+                # Account added successfully with 2FA
                 country = state["country"]
                 phone = state["phone"]
                 try:
@@ -2129,6 +2300,7 @@ def handle_login_flow_messages(msg):
                     )
                 except:
                     pass
+                # Cleanup
                 login_states.pop(user_id, None)
             
             else:
@@ -2152,6 +2324,9 @@ def handle_login_flow_messages(msg):
                 pass
             login_states.pop(user_id, None)
 
+# -----------------------
+# TASK 2: EDIT PRICE MESSAGE HANDLER
+# -----------------------
 @bot.message_handler(func=lambda m: edit_price_state.get(m.from_user.id, {}).get("step") == "waiting_price")
 def handle_edit_price_input(msg):
     user_id = msg.from_user.id
@@ -2172,6 +2347,7 @@ def handle_edit_price_input(msg):
         
         country_name = edit_price_state[user_id]["country"]
         
+        # Update price in database
         result = countries_col.update_one(
             {"name": country_name, "status": "active"},
             {"$set": {"price": new_price, "updated_at": datetime.utcnow(), "updated_by": user_id}}
@@ -2191,13 +2367,18 @@ def handle_edit_price_input(msg):
                 f"❌ Failed to update price. Country '{country_name}' not found or already has same price."
             )
         
+        # Cleanup state and show country management
         edit_price_state.pop(user_id, None)
         show_country_management(msg.chat.id)
     
     except ValueError:
         bot.send_message(msg.chat.id, "❌ Invalid price format. Enter numbers only (e.g., 99.99):")
 
+# -----------------------
+# REFERRAL SYSTEM FUNCTIONS
+# -----------------------
 def show_referral_info(user_id, chat_id):
+    """Show referral information and stats"""
     user_data = users_col.find_one({"user_id": user_id}) or {}
     referral_code = user_data.get('referral_code', f'REF{user_id}')
     total_commission = user_data.get('total_commission_earned', 0)
@@ -2226,6 +2407,9 @@ def show_referral_info(user_id, chat_id):
     sent_msg = bot.send_message(chat_id, message, parse_mode="Markdown", reply_markup=markup)
     user_last_message[user_id] = sent_msg.message_id
 
+# -----------------------
+# ADMIN MANAGEMENT FUNCTIONS
+# -----------------------
 def show_admin_panel(chat_id):
     user_id = chat_id
     
@@ -2271,13 +2455,14 @@ def show_admin_panel(chat_id):
     )
     markup.add(
         InlineKeyboardButton("🌍 Manage Countries", callback_data="manage_countries"),
-        InlineKeyboardButton("🎟 Coupon Management", callback_data="admin_coupon_menu")
+        InlineKeyboardButton("🎟 Coupon Management", callback_data="admin_coupon_menu")  # ADDED: Coupon management
     )
     
     sent_msg = bot.send_message(chat_id, text, reply_markup=markup, parse_mode="Markdown")
     user_last_message[user_id] = sent_msg.message_id
 
 def show_country_management(chat_id):
+    """Show country management options"""
     if not is_admin(chat_id):
         bot.send_message(chat_id, "❌ Unauthorized access")
         return
@@ -2294,7 +2479,7 @@ def show_country_management(chat_id):
     markup = InlineKeyboardMarkup(row_width=2)
     markup.add(
         InlineKeyboardButton("➕ Add Country", callback_data="add_country"),
-        InlineKeyboardButton("✏️ Edit Price", callback_data="edit_price")
+        InlineKeyboardButton("✏️ Edit Price", callback_data="edit_price")  # TASK 2: Added Edit Price button
     )
     markup.add(
         InlineKeyboardButton("➖ Remove Country", callback_data="remove_country")
@@ -2305,6 +2490,7 @@ def show_country_management(chat_id):
     user_last_message[chat_id] = sent_msg.message_id
 
 def ask_country_name(message):
+    """Ask for country name to add"""
     if not is_admin(message.from_user.id):
         bot.send_message(message.chat.id, "❌ Unauthorized access")
         return
@@ -2318,6 +2504,7 @@ def ask_country_name(message):
 
 @bot.message_handler(func=lambda message: user_states.get(message.chat.id, {}).get("step") == "ask_country_price")
 def ask_country_price(message):
+    """Ask for country price"""
     if not is_admin(message.from_user.id):
         bot.send_message(message.chat.id, "❌ Unauthorized access")
         return
@@ -2327,6 +2514,7 @@ def ask_country_price(message):
         user_data = user_states.get(message.chat.id)
         country_name = user_data.get("country_name")
         
+        # Add country to database
         country_data = {
             "name": country_name,
             "price": price,
@@ -2351,6 +2539,7 @@ def ask_country_price(message):
         bot.send_message(message.chat.id, "❌ Invalid price. Please enter a number:")
 
 def show_country_removal(chat_id):
+    """Show countries for removal"""
     if not is_admin(chat_id):
         bot.send_message(chat_id, "❌ Unauthorized access")
         return
@@ -2377,16 +2566,19 @@ def show_country_removal(chat_id):
     user_last_message[chat_id] = sent_msg.message_id
 
 def remove_country(country_name, chat_id, message_id=None):
+    """Remove a country from the system"""
     if not is_admin(chat_id):
         return "❌ Unauthorized access"
     
     try:
+        # Mark country as inactive
         result = countries_col.update_one(
             {"name": country_name, "status": "active"},
             {"$set": {"status": "inactive", "removed_at": datetime.utcnow()}}
         )
         
         if result.modified_count > 0:
+            # Delete all accounts for this country
             accounts_col.delete_many({"country": country_name})
             
             if message_id:
@@ -2406,6 +2598,7 @@ def remove_country(country_name, chat_id, message_id=None):
         return f"❌ Error removing country: {str(e)}"
 
 def ask_ban_user(message):
+    """Ask for user ID to ban"""
     if not is_admin(message.from_user.id):
         bot.send_message(message.chat.id, "❌ Unauthorized access")
         return
@@ -2413,16 +2606,19 @@ def ask_ban_user(message):
     try:
         user_id_to_ban = int(message.text.strip())
         
+        # Check if user exists
         user = users_col.find_one({"user_id": user_id_to_ban})
         if not user:
             bot.send_message(message.chat.id, "❌ User not found in database.")
             return
         
+        # Check if already banned
         already_banned = banned_users_col.find_one({"user_id": user_id_to_ban, "status": "active"})
         if already_banned:
             bot.send_message(message.chat.id, "⚠️ User is already banned.")
             return
         
+        # Ban the user
         ban_record = {
             "user_id": user_id_to_ban,
             "banned_by": message.from_user.id,
@@ -2434,12 +2630,13 @@ def ask_ban_user(message):
         
         bot.send_message(message.chat.id, f"✅ User {user_id_to_ban} has been banned.")
         
+        # Notify user
         try:
             bot.send_message(
                 user_id_to_ban,
                 "🚫 **Your Account Has Been Banned**\n\n"
                 "You have been banned from using this bot.\n"
-                "Contact admin @UROGGY if you believe this is a mistake."
+                "Contact admin @zdnxt if you believe this is a mistake."
             )
         except:
             pass
@@ -2448,6 +2645,7 @@ def ask_ban_user(message):
         bot.send_message(message.chat.id, "❌ Invalid user ID. Please enter numeric ID only.")
 
 def ask_unban_user(message):
+    """Ask for user ID to unban"""
     if not is_admin(message.from_user.id):
         bot.send_message(message.chat.id, "❌ Unauthorized access")
         return
@@ -2455,11 +2653,13 @@ def ask_unban_user(message):
     try:
         user_id_to_unban = int(message.text.strip())
         
+        # Check if user is banned
         ban_record = banned_users_col.find_one({"user_id": user_id_to_unban, "status": "active"})
         if not ban_record:
             bot.send_message(message.chat.id, "⚠️ User is not banned.")
             return
         
+        # Unban the user
         banned_users_col.update_one(
             {"user_id": user_id_to_unban, "status": "active"},
             {"$set": {"status": "unbanned", "unbanned_at": datetime.utcnow(), "unbanned_by": message.from_user.id}}
@@ -2467,6 +2667,7 @@ def ask_unban_user(message):
         
         bot.send_message(message.chat.id, f"✅ User {user_id_to_unban} has been unbanned.")
         
+        # Notify user
         try:
             bot.send_message(
                 user_id_to_unban,
@@ -2481,11 +2682,13 @@ def ask_unban_user(message):
         bot.send_message(message.chat.id, "❌ Invalid user ID. Please enter numeric ID only.")
 
 def show_user_ranking(chat_id):
+    """Show user ranking by balance"""
     if not is_admin(chat_id):
         bot.send_message(chat_id, "❌ Unauthorized access")
         return
     
     try:
+        # Get all wallet records and join with users
         users_ranking = []
         all_wallets = wallets_col.find()
         
@@ -2493,7 +2696,9 @@ def show_user_ranking(chat_id):
             user_id_rank = wallet.get("user_id")
             balance = float(wallet.get("balance", 0))
             
+            # Only include users with balance > 0
             if balance > 0:
+                # Get user details
                 user = users_col.find_one({"user_id": user_id_rank}) or {}
                 name = user.get("name", "Unknown")
                 username_db = user.get("username")
@@ -2504,27 +2709,34 @@ def show_user_ranking(chat_id):
                     "username": username_db
                 })
         
+        # Sort by balance (highest first)
         users_ranking.sort(key=lambda x: x["balance"], reverse=True)
         
+        # Create ranking message
         ranking_text = "📊 **User Ranking by Wallet Balance**\n\n"
         
         if not users_ranking:
             ranking_text = "📊 No users found with balance greater than zero."
         else:
-            for index, user_data in enumerate(users_ranking[:20], 1):
+            for index, user_data in enumerate(users_ranking[:20], 1):  # Show top 20
                 user_link = f"<a href='tg://user?id={user_data['user_id']}'>{user_data['user_id']}</a>"
                 username_display = f"@{user_data['username']}" if user_data['username'] else "No Username"
                 ranking_text += f"{index}. {user_link} - {username_display}\n"
                 ranking_text += f"   💰 Balance: {format_currency(user_data['balance'])}\n\n"
         
+        # Send ranking message
         bot.send_message(chat_id, ranking_text, parse_mode="HTML")
     
     except Exception as e:
         logger.exception("Error in ranking:")
         bot.send_message(chat_id, f"❌ Error generating ranking: {str(e)}")
 
+# -----------------------
+# BROADCAST FUNCTION - FIXED
+# -----------------------
 @bot.message_handler(commands=['sendbroadcast'])
 def handle_sendbroadcast_command(msg):
+    """Handle /sendbroadcast command"""
     if not is_admin(msg.from_user.id):
         bot.send_message(msg.chat.id, "❌ Unauthorized access")
         return
@@ -2584,6 +2796,9 @@ def broadcast_thread(source_msg, text, is_photo, is_video, is_document):
     except Exception:
         pass
 
+# -----------------------
+# OTHER FUNCTIONS FROM FIRST CODE
+# -----------------------
 def ask_refund_user(message):
     try:
         refund_user_id = int(message.text)
@@ -2628,6 +2843,7 @@ def process_refund(message, refund_user_id):
 def ask_message_content(msg):
     try:
         target_user_id = int(msg.text)
+        # Check if user exists
         user_exists = users_col.find_one({"user_id": target_user_id})
         if not user_exists:
             bot.send_message(msg.chat.id, "❌ User not found in database.")
@@ -2640,11 +2856,13 @@ def ask_message_content(msg):
 
 def process_user_message(msg, target_user_id):
     try:
+        # Get message content
         text = getattr(msg, "text", None) or getattr(msg, "caption", "") or ""
         is_photo = bool(getattr(msg, "photo", None))
         is_video = getattr(msg, "video", None) is not None
         is_document = getattr(msg, "document", None) is not None
         
+        # Send message to target user
         try:
             if is_photo and getattr(msg, "photo", None):
                 bot.send_photo(target_user_id, photo=msg.photo[-1].file_id, caption=text or "")
@@ -2663,7 +2881,11 @@ def process_user_message(msg, target_user_id):
         logger.exception("Error in process_user_message:")
         bot.send_message(msg.chat.id, f"Error sending message: {e}")
 
+# -----------------------
+# COUNTRY SELECTION FUNCTIONS
+# -----------------------
 def show_countries(chat_id):
+    # Check if user has joined channel
     if not has_user_joined_channel(chat_id):
         start(bot.send_message(chat_id, "/start"))
         return
@@ -2682,6 +2904,7 @@ def show_countries(chat_id):
     text = "🌍 **Select Country**\n\nChoose your country:"
     markup = InlineKeyboardMarkup(row_width=2)
     
+    # Create buttons in 2x2 grid (2 countries per row)
     row = []
     for i, country in enumerate(countries):
         row.append(InlineKeyboardButton(
@@ -2689,10 +2912,12 @@ def show_countries(chat_id):
             callback_data=f"country_raw_{country['name']}"
         ))
         
+        # Add 2 buttons per row
         if len(row) == 2:
             markup.add(*row)
             row = []
     
+    # Add any remaining buttons
     if row:
         markup.add(*row)
     
@@ -2701,6 +2926,9 @@ def show_countries(chat_id):
     sent_msg = bot.send_message(chat_id, text, reply_markup=markup, parse_mode="Markdown")
     user_last_message[chat_id] = sent_msg.message_id
 
+# -----------------------
+# PROCESS PURCHASE FUNCTION (UPDATED)
+# -----------------------
 def process_purchase(user_id, account_id, chat_id, message_id, callback_id):
     try:
         try:
@@ -2714,6 +2942,7 @@ def process_purchase(user_id, account_id, chat_id, message_id, callback_id):
         
         if account.get('used', False):
             bot.answer_callback_query(callback_id, "❌ Account already sold out", show_alert=True)
+            # Go back to country selection
             try:
                 bot.delete_message(chat_id, message_id)
             except:
@@ -2721,6 +2950,7 @@ def process_purchase(user_id, account_id, chat_id, message_id, callback_id):
             show_countries(chat_id)
             return
         
+        # Get country price
         country = get_country_by_name(account['country'])
         if not country:
             bot.answer_callback_query(callback_id, "❌ Country not found", show_alert=True)
@@ -2740,6 +2970,7 @@ def process_purchase(user_id, account_id, chat_id, message_id, callback_id):
         
         deduct_balance(user_id, price)
         
+        # Create OTP session for this purchase
         session_id = f"otp_{user_id}_{int(time.time())}"
         otp_session = {
             "session_id": session_id,
@@ -2749,12 +2980,13 @@ def process_purchase(user_id, account_id, chat_id, message_id, callback_id):
             "status": "active",
             "created_at": datetime.utcnow(),
             "account_id": str(account['_id']),
-            "has_otp": False,
+            "has_otp": False,  # Start with False, becomes True when OTP received
             "last_otp": None,
             "last_otp_time": None
         }
         otp_sessions_col.insert_one(otp_session)
         
+        # Create order
         order = {
             "user_id": user_id,
             "account_id": str(account.get('_id')),
@@ -2768,6 +3000,7 @@ def process_purchase(user_id, account_id, chat_id, message_id, callback_id):
         }
         order_id = orders_col.insert_one(order).inserted_id
         
+        # Mark account as used
         try:
             accounts_col.update_one(
                 {"_id": account.get('_id')},
@@ -2779,6 +3012,7 @@ def process_purchase(user_id, account_id, chat_id, message_id, callback_id):
                 {"$set": {"used": True, "used_at": datetime.utcnow()}}
             )
         
+        # Start simple background monitoring (session keep-alive only, no auto OTP search)
         def start_simple_monitoring():
             try:
                 account_manager.start_simple_monitoring_sync(
@@ -2789,9 +3023,11 @@ def process_purchase(user_id, account_id, chat_id, message_id, callback_id):
             except Exception as e:
                 logger.error(f"Simple monitoring error: {e}")
         
+        # Start monitoring thread
         thread = threading.Thread(target=start_simple_monitoring, daemon=True)
         thread.start()
         
+        # USER KO SIRF PHONE NUMBER DIKHAO - NO API ID/HASH
         account_details = f"""✅ **Purchase Successful!** 
 
 🌍 Country: {account['country']}
@@ -2808,6 +3044,7 @@ def process_purchase(user_id, account_id, chat_id, message_id, callback_id):
         account_details += f"4. **Click 'Get OTP' button below when you need OTP**\n\n"
         account_details += f"⏳ OTP available for 30 minutes"
         
+        # Add ONLY Get OTP button
         get_otp_markup = InlineKeyboardMarkup()
         get_otp_markup.add(InlineKeyboardButton("🔢 Get OTP", callback_data=f"get_otp_{session_id}"))
         
@@ -2833,13 +3070,17 @@ def process_purchase(user_id, account_id, chat_id, message_id, callback_id):
         except:
             pass
 
+# MESSAGE HANDLER FOR ADMIN DEDUCT AND BROADCAST - COMPLETELY FIXED
+# -----------------------
 @bot.message_handler(func=lambda m: True, content_types=['text','photo','video','document'])
 def chat_handler(msg):
     user_id = msg.from_user.id
     
+    # ADMIN DEDUCT MUST HAVE PRIORITY
     if user_id == ADMIN_ID and user_id in admin_deduct_state:
         pass
 
+    # Check if user is banned
     if is_user_banned(user_id):
         return
 
@@ -2849,6 +3090,7 @@ def chat_handler(msg):
         msg.from_user.username
     )
 
+    # Skip commands ONLY if admin is NOT in deduct flow
     if (
         msg.text
         and msg.text.startswith('/')
@@ -2856,9 +3098,13 @@ def chat_handler(msg):
     ):
         return
 
+    # ===============================
+    # ADMIN DEDUCT FLOW (PRIORITY)
+    # ===============================
     if user_id == ADMIN_ID and user_id in admin_deduct_state:
         state = admin_deduct_state[user_id]
 
+        # STEP 1: Ask User ID
         if state["step"] == "ask_user_id":
             try:
                 target_user_id = int(msg.text.strip())
@@ -2887,6 +3133,7 @@ def chat_handler(msg):
                 bot.send_message(ADMIN_ID, "❌ Invalid User ID. Enter numeric ID:")
                 return
 
+        # STEP 2: Ask Amount
         elif state["step"] == "ask_amount":
             try:
                 amount = float(msg.text.strip())
@@ -2917,6 +3164,7 @@ def chat_handler(msg):
                 bot.send_message(ADMIN_ID, "❌ Invalid amount. Enter number:")
                 return
 
+        # STEP 3: Ask Reason + Deduct
         elif state["step"] == "ask_reason":
             reason = msg.text.strip()
 
@@ -2973,12 +3221,16 @@ def chat_handler(msg):
             del admin_deduct_state[user_id]
             return
 
+    # Default reply
     if msg.chat.type == "private":
         bot.send_message(
             user_id,
             "⚠️ Please use /start or buttons from the menu."
         )
 
+# -----------------------
+# RUN BOT
+# -----------------------
 if __name__ == "__main__":
     logger.info(f"🤖 Fixed OTP Bot Starting...")
     logger.info(f"Admin ID: {ADMIN_ID}")
@@ -2988,6 +3240,7 @@ if __name__ == "__main__":
     logger.info(f"Referral Commission: {REFERRAL_COMMISSION}%")
     logger.info(f"Must Join Channel: {MUST_JOIN_CHANNEL}")
     
+    # Create indexes for coupons collection
     try:
         coupons_col.create_index([("coupon_code", 1)], unique=True)
         coupons_col.create_index([("status", 1)])
