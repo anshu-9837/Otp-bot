@@ -457,9 +457,9 @@ def clean_ui_and_send_menu(chat_id, user_id, text=None, markup=None):
                   "4️⃣ Login via Telegram X\n" \
                   "5️⃣ Receive OTP & You're Done ✅</blockquote>\n\n" \
                   "▰▰▰▰▰▰▰▰▰▰▰▰▰▰\n\n" \
-                  "◈ <b>OWNER :</b> @UROGGY\n" \
-                  "◈ <b>DEV :</b> OGGY\n" \
-                  "◈ <b>VERSION :</b> 2.0\n" \
+                  "◈ <b>OWNER :</b> @REXO0_XD\n" \
+                  "◈ <b>DEV :</b> REXO\n" \
+                  "◈ <b>VERSION :</b> 1.0\n" \
                   "▰▰▰▰▰▰▰▰▰▰▰▰▰▰"
         
         if markup is None:
