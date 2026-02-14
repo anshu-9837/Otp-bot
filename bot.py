@@ -29,7 +29,7 @@ from pyrogram.errors import (
 # -----------------------
 # CONFIG
 # -----------------------
-BOT_TOKEN = os.getenv('BOT_TOKEN', '8407486577:AAEidz_jkJEVYUqHyRwr0-QbMIJ9uUjhl_o
+BOT_TOKEN = os.getenv('BOT_TOKEN', '8286083164:AAH9KqncsViaYFCwaGTFLAIJUxnPxeF-2ak'
 ADMIN_ID = int(os.getenv('ADMIN_ID', '8043091004'))
 MONGO_URL = os.getenv('MONGO_URL', 'mongodb+srv://userbot:userbot@cluster0.iweqz.mongodb.net/test?retryWrites=true&w=majority')
 API_ID = int(os.getenv('API_ID', '32892297'))
