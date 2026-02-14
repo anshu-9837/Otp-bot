@@ -483,7 +483,7 @@ def clean_ui_and_send_menu(chat_id, user_id, text=None, markup=None):
         try:
             sent_msg = bot.send_photo(
                 chat_id,
-                "https://files.catbox.moe/gfsb3f.png",
+                "https://files.catbox.moe/0e9xfh.jpg",
                 caption=text or caption,
                 parse_mode="HTML",
                 reply_markup=markup
@@ -532,7 +532,7 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
         try:
             bot.send_photo(
                 user_id,
-                "https://files.catbox.moe/gfsb3f.png",
+                "https://files.catbox.moe/0e9xfh.jpg",
                 caption=caption,
                 parse_mode="HTML",
                 reply_markup=markup
@@ -1771,7 +1771,7 @@ def process_recharge_amount(msg):
         
         bot.send_photo(
             msg.chat.id,
-            "https://files.catbox.moe/a310jr.jpg",
+            "https://files.catbox.moe/c6cy1n.jpg",
             caption=caption,
             parse_mode="HTML",
             reply_markup=markup
