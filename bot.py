@@ -29,14 +29,14 @@ from pyrogram.errors import (
 # -----------------------
 # CONFIG
 # -----------------------
-BOT_TOKEN = os.getenv('BOT_TOKEN', '8407486577:AAEidz_jkJEVYUqHyRwr0-QbMIJ9uUjhl_o')
+BOT_TOKEN = os.getenv('BOT_TOKEN', '8407486577:AAEidz_jkJEVYUqHyRwr0-QbMIJ9uUjhl_o
 ADMIN_ID = int(os.getenv('ADMIN_ID', '8043091004'))
-MONGO_URL = os.getenv('mongodb+srv://anshuchandaliya9_db_user:<db_password>@cluster0.payflha.mongodb.net/?appName=Cluster0')
+MONGO_URL = os.getenv('MONGO_URL', 'mongodb+srv://userbot:userbot@cluster0.iweqz.mongodb.net/test?retryWrites=true&w=majority')
 API_ID = int(os.getenv('API_ID', '32892297'))
 API_HASH = os.getenv('API_HASH', 'b86cdf9bf87c9e61448cfedbd70f4b59')
 
 # MUST JOIN CHANNEL
-MUST_JOIN_CHANNEL = "@CHEAP_STOCKS02"
+MUST_JOIN_CHANNEL = "@OGGY_OTP"
 
 # Referral commission percentage
 REFERRAL_COMMISSION = 1.5  # 1.5% per recharge
@@ -457,9 +457,9 @@ def clean_ui_and_send_menu(chat_id, user_id, text=None, markup=None):
                   "4️⃣ Login via Telegram X\n" \
                   "5️⃣ Receive OTP & You're Done ✅</blockquote>\n\n" \
                   "▰▰▰▰▰▰▰▰▰▰▰▰▰▰\n\n" \
-                  "◈ <b>OWNER :</b> @REXO0_XD\n" \
-                  "◈ <b>DEV :</b> REXO\n" \
-                  "◈ <b>VERSION :</b> 1.0\n" \
+                  "◈ <b>OWNER :</b> @UROGGY\n" \
+                  "◈ <b>DEV :</b> OGGY\n" \
+                  "◈ <b>VERSION :</b> 2.0\n" \
                   "▰▰▰▰▰▰▰▰▰▰▰▰▰▰"
         
         if markup is None:
@@ -483,7 +483,7 @@ def clean_ui_and_send_menu(chat_id, user_id, text=None, markup=None):
         try:
             sent_msg = bot.send_photo(
                 chat_id,
-                "https://files.catbox.moe/0e9xfh.jpg",
+                "https://files.catbox.moe/gfsb3f.png",
                 caption=text or caption,
                 parse_mode="HTML",
                 reply_markup=markup
@@ -532,7 +532,7 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
         try:
             bot.send_photo(
                 user_id,
-                "https://files.catbox.moe/0e9xfh.jpg",
+                "https://files.catbox.moe/gfsb3f.png",
                 caption=caption,
                 parse_mode="HTML",
                 reply_markup=markup
@@ -1771,7 +1771,7 @@ def process_recharge_amount(msg):
         
         bot.send_photo(
             msg.chat.id,
-            "https://files.catbox.moe/c6cy1n.jpg",
+            "https://files.catbox.moe/a310jr.jpg",
             caption=caption,
             parse_mode="HTML",
             reply_markup=markup
