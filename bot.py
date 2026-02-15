@@ -484,7 +484,7 @@ def clean_ui_and_send_menu(chat_id, user_id, text=None, markup=None):
                 pass
         
         # Send main menu with proper image
-        caption = "<blockquote>🥂 <b>Welcome To OTP Bot BY REXO XD </b> 🥂</blockquote>\n" \
+        caption = "<blockquote>🥂 <b>Welcome To OTP Bot By Rexo </b> 🥂</blockquote>\n" \
           "<blockquote><b>✨ Features:</b>\n" \
           "• Automatic OTPs 📍\n" \
           "• Easy to Use 🥂🥂\n" \
