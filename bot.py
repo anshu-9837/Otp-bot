@@ -1891,6 +1891,7 @@ def process_recharge_amount(msg):
         caption = f"""<blockquote>💳 <b>UPI Payment Details</b>
 
 💰 Amount: {format_currency(amount)}
+📱 UPI ID: <code>chandaliya@fam</code>
 </blockquote>
 
 <blockquote>📋 <b>Instructions:</b>
